@@ -322,6 +322,18 @@ async def promptflow_request(request):
     except Exception as e:
         logging.error(f"An error occurred while making promptflow_request: {e}")
 
+async def search_web(query):
+    api_key = "258f875e3bdc4ae0a9a447f62d97c449"
+    endpoint = "https://api.bing.microsoft.com/"
+    headers = {"Ocp-Apim-Subscription-Key": api_key}
+    params = {"q": query, "mkt": "en-US"}
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(endpoint, headers=headers, params=params)
+        response.raise_for_status()
+        search_results = response.json()
+        return search_results["webPages"]["value"] if "webPages" in search_results else []
+
 
 async def send_chat_request(request_body, request_headers):
     filtered_messages = []
@@ -338,6 +350,19 @@ async def send_chat_request(request_body, request_headers):
         raw_response = await azure_openai_client.chat.completions.with_raw_response.create(**model_args)
         response = raw_response.parse()
         apim_request_id = raw_response.headers.get("apim-request-id") 
+
+        # Check if the response is insufficient
+        if "The requested information is not found" in response.choices[0].message.content:
+            # Perform a web search
+            query = request_body['messages'][-1]['content']  # Assuming the last user message is the query
+            search_results = await search_web(query)
+            if search_results:
+                # Format search results into a response
+                formatted_results = "\n".join([result["snippet"] for result in search_results])
+                response.choices[0].message.content = f"Here are some web results:\n{formatted_results}"
+            else:
+                response.choices[0].message.content += " Also, no relevant information was found on the web."
+
     except Exception as e:
         logging.exception("Exception in send_chat_request")
         raise e
