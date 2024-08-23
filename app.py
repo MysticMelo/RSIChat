@@ -348,13 +348,12 @@ async def send_chat_request(request_body, request_headers):
     try:
         azure_openai_client = await init_openai_client()
 
-        # Check if streaming mode is enabled
         if model_args.get('stream', False):
             # Handle streaming response
             full_response = ""
-            async with azure_openai_client.chat.completions.create(**model_args) as response:
-                async for chunk in response:
-                    full_response += chunk.get('delta', {}).get('content', '')
+            response = await azure_openai_client.chat.completions.create(**model_args)  # Await the coroutine
+            async for chunk in response:  # Use async for to iterate over the response
+                full_response += chunk.get('delta', {}).get('content', '')
 
             # Check if the response is insufficient
             if "The requested information is not found" in full_response:
