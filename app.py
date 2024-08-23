@@ -322,19 +322,20 @@ async def promptflow_request(request):
     except Exception as e:
         logging.error(f"An error occurred while making promptflow_request: {e}")
 
-async def search_web(query):
-    api_key = "258f875e3bdc4ae0a9a447f62d97c449"
-    endpoint = "https://api.bing.microsoft.com/v7.0/search"
-    headers = {"Ocp-Apim-Subscription-Key": api_key}
+
+async def search_bing(query):
+    bing_api_key = os.getenv("BING_API_KEY")  # Store your API key in an environment variable
+    bing_endpoint = "https://api.bing.microsoft.com/v7.0/search"
+    headers = {"Ocp-Apim-Subscription-Key": bing_api_key}
     params = {"q": query, "mkt": "en-US"}
 
     async with httpx.AsyncClient() as client:
-        response = await client.get(endpoint, headers=headers, params=params)
+        response = await client.get(bing_endpoint, headers=headers, params=params)
         response.raise_for_status()
         search_results = response.json()
         return search_results.get("webPages", {}).get("value", [])
 
-
+# Modify send_chat_request function to include Bing Search integration
 async def send_chat_request(request_body, request_headers):
     filtered_messages = []
     messages = request_body.get("messages", [])
@@ -347,48 +348,23 @@ async def send_chat_request(request_body, request_headers):
 
     try:
         azure_openai_client = await init_openai_client()
+        raw_response = await azure_openai_client.chat.completions.with_raw_response.create(**model_args)
+        response = raw_response.parse()
+        apim_request_id = raw_response.headers.get("apim-request-id")
 
-        if model_args.get('stream', False):
-            # Handle streaming response
-            full_response = ""
-            response = await azure_openai_client.chat.completions.create(**model_args)  # Await the coroutine
-            async for chunk in response:  # Use async for to iterate over the response
-                full_response += chunk.get('delta', {}).get('content', '')
-
-            # Check if the response is insufficient
-            if "The requested information is not found" in full_response:
-                query = request_body['messages'][-1]['content']  # Assuming the last user message is the query
-                search_results = await search_web(query)
-                if search_results:
-                    formatted_results = "\n".join([result["snippet"] for result in search_results])
-                    full_response += f"\n\nHere are some web results:\n{formatted_results}"
-                else:
-                    full_response += "\n\nAlso, no relevant information was found on the web."
-
-            return full_response, None
-
-        else:
-            # Handle non-streaming response
-            raw_response = await azure_openai_client.chat.completions.create(**model_args)
-            response_text = raw_response.get('message', {}).get('content', '')
-
-            # Check if the response is insufficient
-            if "The requested information is not found" in response_text:
-                query = request_body['messages'][-1]['content']  # Assuming the last user message is the query
-                search_results = await search_web(query)
-                if search_results:
-                    formatted_results = "\n".join([result["snippet"] for result in search_results])
-                    response_text += f"\n\nHere are some web results:\n{formatted_results}"
-                else:
-                    response_text += "\n\nAlso, no relevant information was found on the web."
-
-            return response_text, None
+        # Check if the response suggests a need for additional information (e.g., search query)
+        if "The requested information is not found" in response['choices'][0]['message']['content'].lower():
+            last_user_message = messages[-1]['content']
+            search_results = await search_bing(last_user_message)
+            if search_results:
+                response['choices'][0]['message']['content'] += "\n\nHere are some web results:\n"
+                response['choices'][0]['message']['content'] += "\n".join([result['snippet'] for result in search_results])
 
     except Exception as e:
         logging.exception("Exception in send_chat_request")
         raise e
 
-#    return response, apim_request_id
+    return response, apim_request_id
 
 
 async def complete_chat_request(request_body, request_headers):
