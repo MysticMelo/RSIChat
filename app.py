@@ -325,7 +325,7 @@ async def promptflow_request(request):
 
 async def search_bing(query):
     bing_api_key = os.getenv("BING_API_KEY")  # Store your API key in an environment variable
-    bing_endpoint = "https://api.bing.microsoft.com/v7.0/search"
+    bing_endpoint = "https://api.bing.microsoft.com/"
     headers = {"Ocp-Apim-Subscription-Key": bing_api_key}
     params = {"q": query, "mkt": "en-US"}
 
@@ -349,22 +349,23 @@ async def send_chat_request(request_body, request_headers):
     try:
         azure_openai_client = await init_openai_client()
         raw_response = await azure_openai_client.chat.completions.with_raw_response.create(**model_args)
-        response = raw_response.parse()
+        response_content = await raw_response.aread()  # Read the response content as a string
+        response_json = json.loads(response_content)  # Parse the JSON content
         apim_request_id = raw_response.headers.get("apim-request-id")
 
         # Check if the response suggests a need for additional information (e.g., search query)
-        if "The requested information is not found" in response['choices'][0]['message']['content'].lower():
+        if "The requested information is not found" in response_json['choices'][0]['message']['content'].lower():
             last_user_message = messages[-1]['content']
             search_results = await search_bing(last_user_message)
             if search_results:
-                response['choices'][0]['message']['content'] += "\n\nHere are some web results:\n"
-                response['choices'][0]['message']['content'] += "\n".join([result['snippet'] for result in search_results])
+                response_json['choices'][0]['message']['content'] += "\n\nHere are some web results:\n"
+                response_json['choices'][0]['message']['content'] += "\n".join([result['snippet'] for result in search_results])
 
     except Exception as e:
         logging.exception("Exception in send_chat_request")
         raise e
 
-    return response, apim_request_id
+    return response_json, apim_request_id
 
 
 async def complete_chat_request(request_body, request_headers):
