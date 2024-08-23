@@ -349,8 +349,9 @@ async def send_chat_request(request_body, request_headers):
     try:
         azure_openai_client = await init_openai_client()
         raw_response = await azure_openai_client.chat.completions.with_raw_response.create(**model_args)
-        response_content = await raw_response.aread()  # Read the response content as a string
-        response_json = json.loads(response_content)  # Parse the JSON content
+        
+        # Access the content and headers directly from the APIResponse object
+        response_json = raw_response.response_body  # Assuming this gives you the JSON body
         apim_request_id = raw_response.headers.get("apim-request-id")
 
         # Check if the response suggests a need for additional information (e.g., search query)
