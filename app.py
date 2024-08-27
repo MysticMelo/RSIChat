@@ -323,7 +323,6 @@ async def promptflow_request(request):
         logging.error(f"An error occurred while making promptflow_request: {e}")
 
 
-# Modify send_chat_request function to include Bing Search integration
 async def send_chat_request(request_body, request_headers):
     filtered_messages = []
     messages = request_body.get("messages", [])
